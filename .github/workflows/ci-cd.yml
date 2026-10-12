@@ -1,0 +1,98 @@
+name: CI/CD
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch: {}
+
+env:
+  IMAGE_NAME: ${{ github.repository }}   # напр. user/homework1-app
+  REGISTRY: ghcr.io
+
+jobs:
+  # 1) СБОРКА: собираем образ, прогоняем базовую проверку (health check внутри
+  #    контейнера) и сохраняем сам образ как артефакт CI — это то самое
+  #    "сохраняем сборку в виде артефакта", которое требуется в задании.
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build image
+        run: docker build -t app:${{ github.sha }} .
+
+      - name: Smoke test (поднимаем контейнер и проверяем /health)
+        run: |
+          docker run -d --name smoke -p 8000:8000 app:${{ github.sha }}
+          for i in $(seq 1 10); do
+            if curl -fsS http://localhost:8000/health; then break; fi
+            sleep 2
+          done
+          curl -fsS http://localhost:8000/health
+          docker rm -f smoke
+
+      - name: Save image as artifact
+        run: docker save app:${{ github.sha }} -o app-image.tar
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-image-${{ github.sha }}
+          path: app-image.tar
+          retention-days: 14
+
+  # 2) ПУБЛИКАЦИЯ: пушим тот же образ в container registry (GHCR), чтобы
+  #    сервер мог просто сделать `docker pull`, не пересобирая заново.
+  push:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+
+  # 3) ДЕПЛОЙ: подключаемся к серверу по SSH и обновляем работающий стек.
+  deploy:
+    needs: push
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          script: |
+            cd /opt/homework1
+            docker login ${{ env.REGISTRY }} -u ${{ github.actor }} -p ${{ secrets.GITHUB_TOKEN }}
+            docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+            APP_IMAGE=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest \
+              docker compose up -d --force-recreate app
+            docker compose up -d node-exporter cadvisor prometheus grafana
+            curl -fsS http://localhost:8000/health
+
+# Секреты, которые нужно завести в Settings → Secrets → Actions репозитория:
+#   SERVER_HOST     — IP/домен сервера
+#   SERVER_USER     — ssh-пользователь
+#   SERVER_SSH_KEY  — приватный ssh-ключ для доступа
+# GITHUB_TOKEN создаётся автоматически, вручную заводить не нужно.
