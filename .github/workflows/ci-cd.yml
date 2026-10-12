@@ -6,7 +6,7 @@ on:
   workflow_dispatch: {}
 
 env:
-  IMAGE_NAME: ${{ github.repository }}   # напр. user/homework1-app
+  IMAGE_NAME: prostodobr/homework_1_chau
   REGISTRY: ghcr.io
 
 jobs:
