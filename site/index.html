@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Заметки — homework 1</title>
+<style>
+  body{font-family:system-ui,sans-serif;max-width:640px;margin:40px auto;padding:0 16px;background:#f7f7f9}
+  h1{font-size:22px}
+  .box{background:#fff;border:1px solid #e2e2e6;border-radius:8px;padding:14px 16px;margin-bottom:12px}
+  .new{border-style:dashed}
+  input,textarea{width:100%;box-sizing:border-box;padding:6px;margin:4px 0;border-radius:6px;border:1px solid #ccc;font:inherit}
+  button{padding:6px 12px;border-radius:6px;border:1px solid #ccc;background:#fafafa;cursor:pointer}
+  button.danger{border-color:#e0a0a0;color:#b00020}
+  small{color:#888} footer{margin-top:30px;font-size:12px;color:#999}
+</style>
+</head>
+<body>
+<h1>📝 Заметки</h1>
+<p>Статическая версия для GitHub Pages. Заметки сохраняются в браузере (localStorage).</p>
+<div class="box new">
+  <input id="title" placeholder="Заголовок">
+  <textarea id="body" rows="2" placeholder="Текст заметки"></textarea>
+  <button onclick="addNote()">Добавить заметку</button>
+</div>
+<div id="list"></div>
+<footer>homework 1 · GitHub Pages · деплой через GitHub Actions</footer>
+<script>
+const KEY = "hw1-notes";
+function load(){ try { return JSON.parse(localStorage.getItem(KEY)) || []; } catch(e){ return []; } }
+function save(n){ try { localStorage.setItem(KEY, JSON.stringify(n)); } catch(e){} }
+let notes = load();
+function esc(s){ return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/"/g,"&quot;"); }
+function render(){
+  const el = document.getElementById("list");
+  if(!notes.length){ el.innerHTML = "<p><em>Заметок пока нет — добавь первую.</em></p>"; return; }
+  el.innerHTML = notes.map(n => `
+    <div class="box">
+      <input id="t${n.id}" value="${esc(n.title)}">
+      <textarea id="b${n.id}" rows="2">${esc(n.body)}</textarea>
+      <small>обновлено: ${n.updated}</small><br>
+      <button onclick="saveNote(${n.id})">Сохранить</button>
+      <button class="danger" onclick="delNote(${n.id})">Удалить</button>
+    </div>`).join("");
+}
+function now(){ return new Date().toLocaleString("ru-RU"); }
+function addNote(){
+  const t = document.getElementById("title"), b = document.getElementById("body");
+  notes.unshift({id: Date.now(), title: t.value.trim() || "Без названия", body: b.value.trim(), updated: now()});
+  t.value = ""; b.value = ""; save(notes); render();
+}
+function saveNote(id){
+  const n = notes.find(x => x.id === id);
+  n.title = document.getElementById("t"+id).value.trim() || "Без названия";
+  n.body = document.getElementById("b"+id).value.trim();
+  n.updated = now(); save(notes); render();
+}
+function delNote(id){ notes = notes.filter(x => x.id !== id); save(notes); render(); }
+render();
+</script>
+</body>
+</html>
