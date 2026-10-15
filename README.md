@@ -8,10 +8,10 @@
 
 | Что | Где |
 |---|---|
-| Работающее приложение | `<ссылка на приложение>` |
-| Страница статуса и метрик | `<ссылка на приложение>/status` |
-| Метрики Prometheus | `<ссылка на приложение>/metrics` |
-| Health check | `<ссылка на приложение>/health` |
+| Работающее приложение | https://homework-1-chau-latest.onrender.com |
+| Страница статуса и метрик | https://homework-1-chau-latest.onrender.com/status |
+| Метрики Prometheus | https://homework-1-chau-latest.onrender.com/metrics |
+| Health check | https://homework-1-chau-latest.onrender.com/health |
 | Исходный код | https://github.com/ProstoDobr/Homework_1_Chau |
 | Pipeline (Actions) | https://github.com/ProstoDobr/Homework_1_Chau/actions |
 
