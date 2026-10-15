@@ -1,30 +1,26 @@
 #!/usr/bin/env bash
-# Разворачивает приложение на сервере из сохранённого артефакта сборки.
-# Предполагается, что этот скрипт запускается НА СЕРВЕРЕ (или по ssh),
-# а рядом лежит файл артефакта (*.tar), полученный из scripts/build.sh,
-# и файл docker-compose.yml + monitoring/prometheus.yml.
+# Развёртывание из артефакта сборки. Запускается на сервере (или локально),
+# где установлены Docker и Docker Compose:
+#   ./scripts/deploy.sh artifacts/homework1-app-<коммит>.tar.gz
+# Данные (volume app-data) при этом сохраняются.
 set -euo pipefail
+cd "$(dirname "$0")/.."
 
+ARTIFACT="${1:?Использование: $0 <файл-артефакта.tar.gz>}"
 IMAGE_NAME="${IMAGE_NAME:-homework1-app}"
-ARTIFACT_PATH="${1:?Укажи путь к .tar артефакту, например: ./scripts/deploy.sh ./artifacts/homework1-app-abc123.tar}"
+APP_PORT="${APP_PORT:-8000}"
 
-echo "==> Загружаю образ из артефакта ${ARTIFACT_PATH}"
-docker load -i "${ARTIFACT_PATH}"
+echo "==> Загрузка образа из ${ARTIFACT}"
+LOADED="$(docker load -i "${ARTIFACT}" | awk '/^Loaded image:/ {print $3}' | tail -n1)"
+[ -n "${LOADED}" ] || { echo "В артефакте не найден образ" >&2; exit 1; }
+docker tag "${LOADED}" "${IMAGE_NAME}:latest"
 
-echo "==> Помечаю образ как ${IMAGE_NAME}:latest, чтобы его подхватил docker-compose"
-LOADED_TAG=$(docker load -i "${ARTIFACT_PATH}" | tail -n1 | awk '{print $NF}')
-docker tag "${LOADED_TAG}" "${IMAGE_NAME}:latest" || true
+echo "==> Запуск приложения и мониторинга (пересоздаётся только изменившееся)"
+APP_IMAGE="${IMAGE_NAME}:latest" docker compose up -d --no-build
 
-echo "==> Поднимаю (или пересоздаю) стек приложения + мониторинга"
-APP_IMAGE="${IMAGE_NAME}:latest" docker compose up -d --force-recreate app
+./scripts/wait_health.sh "http://localhost:${APP_PORT}/health"
 
-echo "==> Поднимаю мониторинг (если ещё не запущен)"
-docker compose up -d node-exporter cadvisor prometheus grafana
-
-echo "==> Готово. Проверка:"
-sleep 3
-curl -fsS http://localhost:8000/health && echo
-echo "Приложение:      http://<SERVER_IP>:8000"
-echo "Метрики app:      http://<SERVER_IP>:8000/metrics"
-echo "Prometheus:       http://<SERVER_IP>:9090"
-echo "Grafana:          http://<SERVER_IP>:3000  (admin/admin)"
+echo "Приложение:  http://<адрес сервера>:${APP_PORT}"
+echo "Статус:      http://<адрес сервера>:${APP_PORT}/status"
+echo "Prometheus:  http://<адрес сервера>:9090"
+echo "Grafana:     http://<адрес сервера>:3000"

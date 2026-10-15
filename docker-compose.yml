@@ -1,55 +1,29 @@
-version: "3.9"
-
+# Приложение + мониторинг. Запуск: ./scripts/run_local.sh  (или docker compose up -d --build)
 services:
   app:
-    build: .
+    build:
+      context: .
+      args:
+        GIT_SHA: ${GIT_SHA:-local}
     image: ${APP_IMAGE:-homework1-app:latest}
     container_name: hw1-app
     restart: unless-stopped
     ports:
       - "8000:8000"
     volumes:
-      - app-data:/data          # чтобы заметки переживали пересоздание контейнера
-    environment:
-      - DB_PATH=/data/notes.db
-
-  # --- мониторинг -----------------------------------------------------------
-
-  node-exporter:
-    image: prom/node-exporter:v1.8.2
-    container_name: hw1-node-exporter
-    restart: unless-stopped
-    pid: host
-    volumes:
-      - /proc:/host/proc:ro
-      - /sys:/host/sys:ro
-      - /:/rootfs:ro
-    command:
-      - "--path.procfs=/host/proc"
-      - "--path.sysfs=/host/sys"
-      - "--path.rootfs=/rootfs"
-    # метрики хоста: сколько CPU/памяти доступно и потребляется на всей машине
-
-  cadvisor:
-    image: gcr.io/cadvisor/cadvisor:v0.49.1
-    container_name: hw1-cadvisor
-    restart: unless-stopped
-    volumes:
-      - /:/rootfs:ro
-      - /var/run:/var/run:ro
-      - /sys:/sys:ro
-      - /var/lib/docker/:/var/lib/docker:ro
-    # метрики по каждому контейнеру: сколько CPU/памяти РЕАЛЬНО жрёт app
+      - app-data:/data        # база заметок переживает пересоздание контейнера
 
   prometheus:
     image: prom/prometheus:v2.55.1
     container_name: hw1-prometheus
     restart: unless-stopped
+    depends_on:
+      - app
     volumes:
       - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus-data:/prometheus
     ports:
-      - "9090:9090"   # веб-интерфейс с метриками/графиками
+      - "9090:9090"
 
   grafana:
     image: grafana/grafana-oss:11.2.0
@@ -57,12 +31,18 @@ services:
     restart: unless-stopped
     depends_on:
       - prometheus
-    ports:
-      - "3000:3000"   # красивые дашборды (логин/пароль по умолчанию admin/admin)
     environment:
-      - GF_SECURITY_ADMIN_PASSWORD=admin
+      # просмотр без логина, чтобы дашборд открывался сразу; админ: admin / admin
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/app.json
     volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
       - grafana-data:/var/lib/grafana
+    ports:
+      - "3000:3000"
 
 volumes:
   app-data:

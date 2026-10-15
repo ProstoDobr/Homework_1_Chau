@@ -1,22 +1,18 @@
 #!/usr/bin/env bash
-# Быстрый локальный запуск всего стека одной командой — удобно, чтобы
-# преподаватель мог сам проверить исходники без доступа к вашему серверу.
+# Локальный запуск всего стека одной командой (нужны Docker и Docker Compose).
 set -euo pipefail
+cd "$(dirname "$0")/.."
 
-echo "==> Собираю и поднимаю приложение + мониторинг локально"
-docker compose up -d --build
+GIT_SHA="$(git rev-parse HEAD 2>/dev/null || echo local)" docker compose up -d --build
+./scripts/wait_health.sh http://localhost:8000/health
 
-sleep 3
-echo "==> Проверка health check:"
-curl -fsS http://localhost:8000/health && echo
+cat <<'MSG'
 
-cat <<EOF
+Приложение:  http://localhost:8000
+Статус:      http://localhost:8000/status
+Метрики:     http://localhost:8000/metrics
+Prometheus:  http://localhost:9090
+Grafana:     http://localhost:3000   (дашборд открывается сразу, без логина)
 
-Готово! Открой в браузере:
-  Приложение:  http://localhost:8000
-  Метрики:     http://localhost:8000/metrics
-  Prometheus:  http://localhost:9090
-  Grafana:     http://localhost:3000  (admin/admin)
-
-Остановить всё:  docker compose down
-EOF
+Остановить:  docker compose down      (с удалением данных: docker compose down -v)
+MSG

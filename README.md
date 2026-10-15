@@ -1,101 +1,139 @@
-# Домашка 1 — приложение в контейнере + мониторинг + CI/CD
+# Домашнее задание 1 — приложение в контейнере, CI/CD и мониторинг
 
-## Что это
+Учебное веб-приложение «Заметки» (Flask + SQLite): заметки можно добавлять,
+изменять и удалять прямо в браузере. Содержимое не важно — важен процесс
+вокруг него: сборка, артефакт, контейнер, деплой, мониторинг.
 
-Учебное веб-приложение «Заметки» (Flask + SQLite): можно добавлять,
-редактировать и удалять заметки прямо в браузере — то есть интерфейс не
-просто открывается, а даёт что-то реально потыкать и отредактировать.
-Само содержимое неважно, важен пайплайн вокруг него.
+## Ссылки
 
-Эндпоинты:
-- `/` — веб-интерфейс
-- `/health` — health check (используется Docker HEALTHCHECK, compose и CI)
-- `/metrics` — метрики в формате Prometheus: потребляемая/доступная память,
-  число ядер CPU, load average, место на диске, число посещений всего и
-  за последний час
+| Что | Где |
+|---|---|
+| Работающее приложение | `<ссылка на приложение>` |
+| Страница статуса и метрик | `<ссылка на приложение>/status` |
+| Метрики Prometheus | `<ссылка на приложение>/metrics` |
+| Health check | `<ссылка на приложение>/health` |
+| Исходный код | https://github.com/ProstoDobr/Homework_1_Chau |
+| Pipeline (Actions) | https://github.com/ProstoDobr/Homework_1_Chau/actions |
 
-## Структура репозитория
+## Что в репозитории
 
 ```
-app/                      исходный код приложения
-Dockerfile                описание образа
-docker-compose.yml        приложение + весь стек мониторинга
-monitoring/prometheus.yml конфиг Prometheus (что скрейпить)
-scripts/build.sh          сборка образа + сохранение артефакта (.tar)
-scripts/deploy.sh         разворачивание артефакта на сервере
-scripts/run_local.sh      запуск всего одной командой для проверки
-.github/workflows/ci-cd.yml   CI/CD пайплайн (build → artifact → registry → deploy)
+app/                         исходный код приложения (Flask)
+tests/                       тесты
+Dockerfile                   описание контейнера
+docker-compose.yml           приложение + Prometheus + Grafana
+monitoring/                  конфиг Prometheus, источник данных и дашборд Grafana
+scripts/build.sh             сборка образа и сохранение артефакта (.tar.gz)
+scripts/deploy.sh            развёртывание из артефакта
+scripts/run_local.sh         запуск всего стека одной командой
+scripts/wait_health.sh       ожидание успешного health check
+.github/workflows/ci-cd.yml  CI/CD pipeline
 ```
 
-## Как проверить локально (для преподавателя)
+## Как запустить (для проверяющего)
 
-Нужен только Docker + Docker Compose:
+Нужны только Docker и Docker Compose.
 
 ```bash
-git clone <ссылка на репозиторий>
-cd homework1
+git clone https://github.com/ProstoDobr/Homework_1_Chau.git
+cd Homework_1_Chau
 ./scripts/run_local.sh
 ```
 
-Скрипт соберёт образ, поднимет приложение и весь стек мониторинга и
-проверит `/health`. После этого открыть:
+Скрипт собирает образ, поднимает приложение с мониторингом и ждёт успешного
+health check. После этого:
 
-- приложение: http://localhost:8000
-- метрики приложения: http://localhost:8000/metrics
-- Prometheus (сырые метрики/графики): http://localhost:9090
-- Grafana (дашборды): http://localhost:3000 (admin/admin)
+| | Адрес |
+|---|---|
+| Приложение | http://localhost:8000 |
+| Статус и метрики (удобная страница) | http://localhost:8000/status |
+| Метрики в формате Prometheus | http://localhost:8000/metrics |
+| Prometheus | http://localhost:9090 |
+| Grafana (дашборд открывается сразу) | http://localhost:3000 |
 
-Остановить: `docker compose down`
+Остановить: `docker compose down` (вместе с данными: `docker compose down -v`).
 
-## CI/CD процесс (`.github/workflows/ci-cd.yml`)
+Тесты без Docker: `pip install -r app/requirements.txt`, затем
+`python -m unittest discover -s tests -v` (Python 3.12).
 
-При пуше в `main` пайплайн выполняет три шага:
+## CI/CD
 
-1. **build** — собирает Docker-образ из исходников, поднимает его и
-   проверяет `/health` (smoke test), затем сохраняет образ как файл
-   (`docker save`) и загружает его как **артефакт сборки** в GitHub Actions
-   (доступен на вкладке Actions → конкретный run → Artifacts).
-2. **push** — публикует тот же образ в container registry (GHCR),
-   помеченный хешем коммита и `latest`.
-3. **deploy** — по SSH подключается к серверу, скачивает свежий образ
-   (`docker pull`) и пересоздаёт контейнер приложения через
-   `docker compose up -d --force-recreate`, не трогая volume с данными
-   (заметки сохраняются между деплоями).
+```mermaid
+flowchart LR
+    A[git push в main] --> B[test]
+    B --> C[build: образ + артефакт .tar.gz]
+    C --> D[publish: тот же образ в GHCR]
+    D --> E[deploy: хостинг берёт образ из GHCR]
+    E --> F[проверка /health: версия = коммит]
+```
 
-Ручной путь (без GitHub Actions), эквивалентный этому пайплайну:
+Pipeline описан в `.github/workflows/ci-cd.yml` и запускается при push в `main`
+(для pull request выполняются только `test` и `build`).
+
+1. **test** — запускает тесты приложения.
+2. **build** — `scripts/build.sh` собирает образ по `Dockerfile` (в него
+   записывается хеш коммита) и сохраняет его как файл `artifacts/*.tar.gz`
+   (`docker save`). Затем контейнер запускается, и проверяется `/health`.
+   Файл загружается как артефакт сборки (Actions → запуск → Artifacts).
+3. **publish** — скачивает этот артефакт, загружает образ (`docker load`) и
+   публикует его в GitHub Container Registry с тегами `<хеш коммита>` и `latest`.
+   Образ не пересобирается: в registry попадает ровно то, что было проверено.
+4. **deploy** — запрашивает у хостинга деплой образа с тегом текущего коммита и
+   ждёт, пока `/health` по ссылке приложения не вернёт версию этого коммита.
+   Так pipeline сам подтверждает, что развернулась именно новая сборка.
+
+Сборка и деплой без GitHub Actions выполняются теми же скриптами:
 
 ```bash
-# на машине разработчика / в CI
-./scripts/build.sh                       # сборка + сохранение .tar артефакта
-
-# перенос артефакта на сервер, например:
-scp artifacts/homework1-app-*.tar user@server:/opt/homework1/artifacts/
-scp docker-compose.yml monitoring/prometheus.yml user@server:/opt/homework1/
-
-# на сервере
-cd /opt/homework1
-./scripts/deploy.sh artifacts/homework1-app-<tag>.tar
+./scripts/build.sh                                  # образ + artifacts/homework1-app-<коммит>.tar.gz
+scp artifacts/*.tar.gz user@server:/opt/hw1/        # перенос на сервер
+# на сервере, в каталоге с репозиторием:
+./scripts/deploy.sh /opt/hw1/homework1-app-<коммит>.tar.gz
 ```
+
+`deploy.sh` загружает образ из артефакта и запускает стек. Заметки лежат на
+volume `app-data`, поэтому при обновлении версии данные не теряются.
 
 ## Мониторинг
 
-- **node-exporter** — метрики ресурсов всей машины (сколько CPU/памяти
-  всего доступно и сколько занято на хосте).
-- **cAdvisor** — метрики ресурсов именно контейнера приложения (сколько
-  CPU/памяти реально потребляет `hw1-app`).
-- **приложение само** отдаёт на `/metrics`: uptime, RSS процесса,
-  `app_visits_total` и `app_visits_last_hour` — метрика использования
-  приложения, которую требовалось добавить отдельно.
-- **Prometheus** скрейпит все три источника (`monitoring/prometheus.yml`).
-- **Grafana** — для визуализации (данные можно смотреть и напрямую в
-  Prometheus по адресу `:9090`, если не настраивать отдельный дашборд).
-- **health check** — встроен в `Dockerfile` (`HEALTHCHECK`), в
-  `docker-compose` через него же, и отдельно проверяется в CI и в
-  `deploy.sh`/`run_local.sh`.
+Приложение само отдаёт метрики на `/metrics`, Prometheus собирает их каждые
+15 секунд, Grafana показывает готовый дашборд «Homework 1 — Заметки»
+(создаётся автоматически из `monitoring/grafana/`).
 
-## Данные (редактируемость приложения)
+| Требование | Метрика | Где смотреть |
+|---|---|---|
+| Ресурсы потребляемые | `app_container_memory_usage_bytes`, `app_container_cpu_usage_seconds_total` | дашборд, `/status` |
+| Ресурсы доступные | `app_container_memory_limit_bytes`, `app_container_cpu_limit_cores`, `app_host_memory_available_bytes`, `app_disk_free_bytes` | дашборд, `/status` |
+| Health check | `/health` (200 или 503), `up{job="app"}` в Prometheus, `HEALTHCHECK` в Dockerfile | `/health`, дашборд |
+| Посещения в час | `app_visits_last_hour`, `app_visits_last_24h` | дашборд, `/status` (таблица по часам) |
 
-Заметки хранятся в SQLite-файле на Docker volume `app-data`, который
-не пересоздаётся при `--force-recreate` контейнера — то есть можно
-редактировать данные через интерфейс, передеплоить новую версию образа,
-и данные останутся на месте.
+Посещением считается открытие главной страницы `/`. Запросы к `/health`,
+`/metrics` и `/status` в счётчик не попадают, иначе health check
+(раз в 15 секунд) искажал бы статистику. Посещения хранятся в той же SQLite-базе
+(7 суток), поэтому счётчик не зависит от числа процессов и переживает перезапуск.
+
+Память и CPU контейнера читаются из cgroup (`/sys/fs/cgroup`), поэтому
+отдельные экспортёры не нужны и стек запускается одинаково на Linux, macOS и Windows.
+
+## Настройка деплоя
+
+Хостинг — [Render](https://render.com), бесплатный тариф: веб-сервис из готового
+Docker-образа. Подойдёт и другая платформа, которая умеет брать образ из
+registry по webhook.
+
+1. GitHub: Settings → Packages → пакет `homework_1_chau` → Package settings →
+   Change visibility → **Public** (иначе хостинг не скачает образ).
+2. Render: New → Web Service → Existing Image →
+   `ghcr.io/prostodobr/homework_1_chau:latest`, тариф Free,
+   Health Check Path: `/health`.
+3. Скопировать Deploy Hook из настроек сервиса.
+4. GitHub: Settings → Secrets and variables → Actions: секрет
+   `RENDER_DEPLOY_HOOK` — адрес хука; переменная `APP_URL` — адрес сервиса,
+   например `https://hw1.onrender.com` (без слеша в конце).
+
+После этого каждый push в `main` автоматически обновляет работающее приложение.
+
+Ограничения бесплатного тарифа: сервис засыпает без обращений и просыпается
+около минуты; файловая система временная, поэтому заметки и счётчик посещений
+на хостинге сбрасываются при каждом новом деплое. При локальном запуске через
+`docker compose` данные хранятся на volume и сохраняются.

@@ -2,69 +2,115 @@ name: CI/CD
 
 on:
   push:
-    branches: [ "main" ]
-  workflow_dispatch: {}
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
 
-env:
-  IMAGE_NAME: prostodobr/homework_1_chau
-  REGISTRY: ghcr.io
+permissions:
+  contents: read
 
 jobs:
-  # 1) СБОРКА: собираем образ, прогоняем базовую проверку (health check внутри
-  #    контейнера) и сохраняем сам образ как артефакт CI — это то самое
-  #    "сохраняем сборку в виде артефакта", которое требуется в задании.
-  build:
+  # 1. Тесты приложения
+  test:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: app/requirements.txt
+      - run: pip install -r app/requirements.txt
+      - run: python -m unittest discover -s tests -v
 
-      - name: Build image
-        run: docker build -t app:${{ github.sha }} .
+  # 2. Сборка образа (scripts/build.sh), проверка /health в контейнере,
+  #    сохранение образа как артефакта сборки
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
 
-      - name: Smoke test (поднимаем контейнер и проверяем /health)
+      - name: Сборка образа и артефакта
+        run: ./scripts/build.sh
+
+      - name: Проверка контейнера
         run: |
-          docker run -d --name smoke -p 8000:8000 app:${{ github.sha }}
-          for i in $(seq 1 10); do
-            if curl -fsS http://localhost:8000/health; then break; fi
-            sleep 2
-          done
-          curl -fsS http://localhost:8000/health
+          docker run -d --name smoke -p 8000:8000 homework1-app:latest
+          ./scripts/wait_health.sh http://localhost:8000/health
+          docker inspect --format '{{.State.Health.Status}}' smoke || true
           docker rm -f smoke
 
-      - name: Save image as artifact
-        run: docker save app:${{ github.sha }} -o app-image.tar
-
-      - name: Upload build artifact
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
-          name: app-image-${{ github.sha }}
-          path: app-image.tar
+          name: image-${{ github.sha }}
+          path: artifacts/*.tar.gz
           retention-days: 14
 
-  # 2) ПУБЛИКАЦИЯ: пушим тот же образ в container registry (GHCR), чтобы
-  #    сервер мог просто сделать `docker pull`, не пересобирая заново.
-  push:
+  # 3. Публикация того же артефакта (не пересборка) в GitHub Container Registry
+  publish:
+    if: github.event_name != 'pull_request'
     needs: build
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
+    outputs:
+      image: ${{ steps.push.outputs.image }}
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Log in to GHCR
-        uses: docker/login-action@v3
+      - uses: actions/download-artifact@v4
         with:
-          registry: ${{ env.REGISTRY }}
+          name: image-${{ github.sha }}
+          path: artifacts
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          push: true
-          tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+      - name: Загрузка образа из артефакта и push
+        id: push
+        run: |
+          loaded="$(docker load -i artifacts/*.tar.gz | awk '/^Loaded image:/ {print $3}' | tail -n1)"
+          repo="ghcr.io/$(echo "${GITHUB_REPOSITORY}" | tr '[:upper:]' '[:lower:]')"
+          docker tag "${loaded}" "${repo}:${GITHUB_SHA}"
+          docker tag "${loaded}" "${repo}:latest"
+          docker push "${repo}:${GITHUB_SHA}"
+          docker push "${repo}:latest"
+          echo "image=${repo}:${GITHUB_SHA}" >> "${GITHUB_OUTPUT}"
+
+  # 4. Деплой: платформа получает команду взять образ из GHCR; затем ждём, пока
+  #    по ссылке приложения /health начнёт отдавать версию именно этого коммита.
+  #    Нужны секрет RENDER_DEPLOY_HOOK и переменная APP_URL (см. README);
+  #    без них шаг пропускается.
+  deploy:
+    needs: publish
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Деплой и проверка
+        env:
+          DEPLOY_HOOK: ${{ secrets.RENDER_DEPLOY_HOOK }}
+          APP_URL: ${{ vars.APP_URL }}
+          IMAGE: ${{ needs.publish.outputs.image }}
+        run: |
+          if [ -z "${DEPLOY_HOOK}" ] || [ -z "${APP_URL}" ]; then
+            echo "::notice::Деплой пропущен: не заданы секрет RENDER_DEPLOY_HOOK и/или переменная APP_URL"
+            exit 0
+          fi
+          curl -fsS -G "${DEPLOY_HOOK}" --data-urlencode "imgURL=${IMAGE}" > /dev/null
+          echo "Деплой запущен: ${IMAGE}"
+          for _ in $(seq 1 60); do
+            version="$(curl -fsS "${APP_URL}/health" 2>/dev/null | python3 -c 'import sys, json; print(json.load(sys.stdin).get("version", ""))' 2>/dev/null || true)"
+            if [ "${version}" = "${GITHUB_SHA}" ]; then
+              echo "Готово: ${APP_URL} отдаёт версию ${version}"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::error::За 10 минут по ${APP_URL}/health не появилась версия ${GITHUB_SHA}"
+          exit 1

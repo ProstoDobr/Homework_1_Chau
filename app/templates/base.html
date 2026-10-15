@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Заметки{% endblock %} — homework 1</title>
+  {% block head %}{% endblock %}
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 680px; margin: 40px auto; padding: 0 16px; background: #f7f7f9; color: #222; }
+    h1 { font-size: 22px; }
+    nav a { margin-right: 14px; color: #06c; }
+    .card { background: #fff; border: 1px solid #e2e2e6; border-radius: 8px; padding: 14px 16px; margin-bottom: 12px; }
+    .card.new { border-style: dashed; }
+    input[type=text], textarea { width: 100%; box-sizing: border-box; padding: 6px; margin: 4px 0; border-radius: 6px; border: 1px solid #ccc; font: inherit; }
+    button { padding: 6px 12px; border-radius: 6px; border: 1px solid #ccc; background: #fafafa; cursor: pointer; }
+    button.danger { border-color: #e0a0a0; color: #b00020; }
+    small, footer { color: #888; }
+    table { border-collapse: collapse; width: 100%; }
+    td, th { text-align: left; padding: 4px 8px; border-bottom: 1px solid #eee; }
+    .bar { background: #e8e8ee; border-radius: 4px; height: 10px; }
+    .bar > div { background: #4a8; height: 10px; border-radius: 4px; }
+    .ok { color: #1a7f37; font-weight: 600; }
+  </style>
+</head>
+<body>
+  <h1>📝 Заметки</h1>
+  <nav>
+    <a href="{{ url_for('index') }}">Заметки</a>
+    <a href="{{ url_for('status') }}">Статус и метрики</a>
+    <a href="{{ url_for('health') }}">/health</a>
+    <a href="{{ url_for('metrics') }}">/metrics</a>
+  </nav>
+  <hr>
+  {% block content %}{% endblock %}
+</body>
+</html>

@@ -1,0 +1,9 @@
+.git
+.github
+.idea
+artifacts
+tests
+monitoring
+scripts
+**/__pycache__
+*.md

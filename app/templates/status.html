@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}Статус{% endblock %}
+{% block head %}<meta http-equiv="refresh" content="15">{% endblock %}
+{% block content %}
+<div class="card">
+  <b>Health check:</b> <span class="ok">ok</span>
+  · версия <code>{{ s.version[:7] }}</code>
+  · работает {{ (s.uptime_seconds // 60) | int }} мин
+</div>
+
+<div class="card">
+  <b>Посещения</b><br>
+  за последний час: <b>{{ s.visits_last_hour }}</b> · за 24 часа: <b>{{ s.visits_last_24h }}</b>
+  <table>
+    <tr><th>Период</th><th>Посещений</th></tr>
+    {% for label, n in hourly %}<tr><td>{{ label }}</td><td>{{ n }}</td></tr>{% endfor %}
+  </table>
+</div>
+
+<div class="card">
+  <b>Ресурсы контейнера</b>
+  <table>
+    <tr><td>Память: потребляется</td><td>{{ s.container_memory_usage_bytes | mb }}</td></tr>
+    <tr><td>Память: доступно контейнеру</td><td>{{ s.container_memory_limit_bytes | mb }}</td></tr>
+    <tr><td>CPU: ядер доступно</td><td>{{ '%.2f' | format(s.container_cpu_limit_cores) }}</td></tr>
+    <tr><td>CPU: израсходовано всего</td><td>{{ '%.1f' | format(s.container_cpu_seconds) }} с</td></tr>
+  </table>
+  {% if s.container_memory_usage_bytes and s.container_memory_limit_bytes %}
+  <div class="bar"><div style="width: {{ [100, (100 * s.container_memory_usage_bytes / s.container_memory_limit_bytes) | round(1)] | min }}%"></div></div>
+  {% endif %}
+</div>
+
+<div class="card">
+  <b>Ресурсы хоста</b>
+  <table>
+    <tr><td>Память доступна / всего</td><td>{{ s.host_memory_available_bytes | mb }} / {{ s.host_memory_total_bytes | mb }}</td></tr>
+    <tr><td>Диск свободно / всего</td><td>{{ s.disk_free_bytes | mb }} / {{ s.disk_total_bytes | mb }}</td></tr>
+  </table>
+</div>
+<footer>Страница обновляется каждые 15 секунд. Те же данные в формате Prometheus — <a href="{{ url_for('metrics') }}">/metrics</a>.</footer>
+{% endblock %}

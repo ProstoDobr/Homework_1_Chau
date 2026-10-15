@@ -1,50 +1,24 @@
-<!doctype html>
-<html lang="ru">
-<head>
-  <meta charset="utf-8">
-  <title>Заметки — homework 1</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <style>
-    body { font-family: system-ui, sans-serif; max-width: 640px; margin: 40px auto; padding: 0 16px; background:#f7f7f9; }
-    h1 { font-size: 22px; }
-    .note { background: #fff; border: 1px solid #e2e2e6; border-radius: 8px; padding: 14px 16px; margin-bottom: 12px; }
-    .note h3 { margin: 0 0 6px 0; }
-    .note small { color: #888; }
-    form.inline { display: inline; }
-    textarea, input[type=text] { width: 100%; box-sizing: border-box; padding: 6px; margin: 4px 0; border-radius: 6px; border: 1px solid #ccc; }
-    button { padding: 6px 12px; border-radius: 6px; border: 1px solid #ccc; background: #fafafa; cursor: pointer; }
-    button.danger { border-color: #e0a0a0; color: #b00020; }
-    .new-note { background: #fff; border: 1px dashed #bbb; border-radius: 8px; padding: 14px 16px; margin-bottom: 20px; }
-    footer { margin-top: 30px; font-size: 12px; color: #999; }
-    a { color: #06c; }
-  </style>
-</head>
-<body>
-  <h1>📝 Заметки</h1>
-  <p>Простой пример приложения для проверки CI/CD и деплоя. Смотри <a href="/health">/health</a> и <a href="/metrics">/metrics</a>.</p>
+{% extends "base.html" %}
+{% block content %}
+<div class="card new">
+  <form method="post" action="{{ url_for('create_note') }}">
+    <input type="text" name="title" placeholder="Заголовок" maxlength="200" required>
+    <textarea name="body" rows="2" placeholder="Текст заметки" maxlength="5000"></textarea>
+    <button type="submit">Добавить заметку</button>
+  </form>
+</div>
 
-  <div class="new-note">
-    <form method="post" action="{{ url_for('create_note') }}">
-      <input type="text" name="title" placeholder="Заголовок" required>
-      <textarea name="body" rows="2" placeholder="Текст заметки"></textarea>
-      <button type="submit">Добавить заметку</button>
-    </form>
-  </div>
-
-  {% for note in notes %}
-  <div class="note">
-    <form method="post" action="{{ url_for('edit_note', note_id=note['id']) }}">
-      <input type="text" name="title" value="{{ note['title'] }}">
-      <textarea name="body" rows="2">{{ note['body'] }}</textarea>
-      <small>обновлено: {{ note['updated_at'] }}</small><br>
-      <button type="submit">Сохранить</button>
-      <button class="danger" formaction="{{ url_for('delete_note', note_id=note['id']) }}">Удалить</button>
-    </form>
-  </div>
-  {% else %}
-  <p><em>Заметок пока нет — добавь первую.</em></p>
-  {% endfor %}
-
-  <footer>homework 1 · flask + sqlite · /health и /metrics для мониторинга</footer>
-</body>
-</html>
+{% for note in notes %}
+<div class="card">
+  <form method="post" action="{{ url_for('edit_note', note_id=note['id']) }}">
+    <input type="text" name="title" value="{{ note['title'] }}" maxlength="200">
+    <textarea name="body" rows="2" maxlength="5000">{{ note['body'] }}</textarea>
+    <small>обновлено: {{ note['updated_at'] | ts }}</small><br>
+    <button type="submit">Сохранить</button>
+    <button type="submit" class="danger" formaction="{{ url_for('delete_note', note_id=note['id']) }}">Удалить</button>
+  </form>
+</div>
+{% else %}
+<p><em>Заметок пока нет — добавьте первую.</em></p>
+{% endfor %}
+{% endblock %}

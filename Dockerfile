@@ -1,22 +1,33 @@
-# --- сборка ---------------------------------------------------------------
-FROM python:3.12-slim AS base
+FROM python:3.12-slim
+
+# Полный git-коммит, из которого собран образ (виден в /health и /metrics)
+ARG GIT_SHA=dev
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PORT=8000 \
+    DB_PATH=/data/notes.db \
+    APP_VERSION=${GIT_SHA}
 
 WORKDIR /srv/app
 
-# ставим зависимости отдельным слоем, чтобы кэшировался при неизменном requirements.txt
+# зависимости отдельным слоем — кэшируются, пока requirements.txt не менялся
 COPY app/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app/ .
 
-ENV PORT=8000 \
-    DB_PATH=/data/notes.db \
-    PYTHONUNBUFFERED=1
+# приложение работает не от root; /data — каталог для базы (volume)
+RUN useradd --system --uid 10001 app \
+    && mkdir /data \
+    && chown app:app /data
+USER app
 
 VOLUME ["/data"]
 EXPOSE 8000
 
-HEALTHCHECK --interval=15s --timeout=3s --start-period=5s --retries=3 \
-    CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health').status==200 else 1)"
+HEALTHCHECK --interval=15s --timeout=3s --start-period=10s --retries=3 \
+    CMD python -c "import os, urllib.request as u; u.urlopen('http://127.0.0.1:%s/health' % os.environ['PORT'], timeout=3)"
 
-CMD ["gunicorn", "--bind", "0.0.0.0:8000", "--workers", "2", "app:app"]
+# один процесс с потоками: порт берётся из $PORT (так требуют облачные платформы)
+CMD ["sh", "-c", "exec gunicorn --bind 0.0.0.0:${PORT} --workers 1 --threads 4 app:app"]
